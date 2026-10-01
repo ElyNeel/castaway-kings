@@ -143,6 +143,10 @@
   #goals .pinned { border-top: 1px solid var(--line); padding-top: 6px; display: grid; gap: 3px; }
   #goals .pinned > b { display: flex; align-items: center; gap: 6px; font-size: .92rem; }
   #goals .pinned svg.pi { width: 14px; height: 14px; fill: var(--coral); flex: none; }
+  #goals .side { border-top: 1px solid var(--line); padding-top: 6px; display: grid; gap: 3px; }
+  #goals .side > b { display: flex; align-items: center; gap: 6px; font-size: .92rem; color: #f6c87a; }
+  #goals .side svg.pi { width: 14px; height: 14px; fill: #f6c87a; flex: none; }
+  #goals .side span { opacity: .9; line-height: 1.35; }
   #goals .pneed { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 6px; opacity: .85; }
   #goals .pneed img { width: 20px; height: 20px; object-fit: contain; }
   #goals .pneed em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--coral); }
@@ -630,6 +634,8 @@
     <div class="row"><span class="label">Shirt</span><div class="opts" id="opt-top"></div><div class="opts" id="opt-topcol"></div></div>
     <div class="row"><span class="label">Trousers</span><div class="opts" id="opt-legs"></div><div class="opts" id="opt-legscol"></div></div>
     <div class="row"><span class="label">Feet</span><div class="opts" id="opt-feet"></div></div>
+    <div class="row" id="row-dog"><span class="label">Your dog</span><div class="opts" id="opt-dog"></div></div>
+    <div class="row" id="row-dogname"><label class="label" for="dogname">Dog's name</label><input id="dogname" maxlength="14" autocomplete="off" placeholder="Lucky"></div>
   </div>
   <div class="c-foot">
     <button class="btn" id="randomise" type="button">Surprise me</button>
@@ -754,6 +760,6 @@
 <script src="ck-models-1.js?v=b0883c8c"></script>
 <script src="ck-models-2.js?v=634109df"></script>
 <script src="ck-tex.js?v=33cd4d08"></script>
-<script type="module" src="ck-game.js?v=93e902cb"></script>
+<script type="module" src="ck-game.js?v=aa626715"></script>
 
 </html>
