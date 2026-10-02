@@ -347,6 +347,14 @@
   .sbtn.off { background: rgba(255,255,255,.08); color: var(--sand); }
   .sbtn:disabled { background: rgba(127,224,207,.14); color: var(--seaglass); }
   .sbtn:focus-visible { outline: 2px solid var(--seaglass); outline-offset: 2px; }
+  .sbtn.got { background: #5fcf8a; color: #08240f; }
+  .srow.got { background: rgba(95,207,138,.12); border-radius: 12px; transition: background .4s; }
+  .sn .have { font-style: normal; color: #ffe3a8; font-weight: 700; }
+  .shop-coins .delta { font-style: normal; font-weight: 800; color: #ff9a7a; animation: dpop 1.6s ease-out forwards; }
+  .shop-coins .delta.up { color: #7fe0a0; }
+  @keyframes dpop { 0% { opacity: 0; transform: translateY(4px); } 15% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
+  #bag .bag-msg { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 8px); max-width: min(560px, calc(100% - 32px)); text-align: center; background: rgba(10,22,28,.94); border: 1px solid rgba(255,217,138,.3); color: var(--sand); padding: 9px 16px; border-radius: 12px; font-size: .92rem; opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; z-index: 2; }
+  #bag .bag-msg.on { opacity: 1; transform: translate(-50%, 0); }
   @media (max-width: 760px) {
     .shop-body { display: flex; flex-direction: column; overflow-y: auto; gap: 14px; }
     .shop-col { flex: none; min-height: auto; }
@@ -760,6 +768,6 @@
 <script src="ck-models-1.js?v=b0883c8c"></script>
 <script src="ck-models-2.js?v=634109df"></script>
 <script src="ck-tex.js?v=33cd4d08"></script>
-<script type="module" src="ck-game.js?v=89c7c65e"></script>
+<script type="module" src="ck-game.js?v=21d6b51f"></script>
 
 </html>
