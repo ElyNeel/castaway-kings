@@ -357,6 +357,19 @@
   #bag .bag-msg.on { opacity: 1; transform: translate(-50%, 0); }
   #idetail .bin { color: #ffb4a0; }
   #idetail .bin.sure { background: #c8452c; color: #fff; }
+  .fire-now { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .fire-spots { display: flex; flex-wrap: wrap; gap: 6px; }
+  .fire-spots .fs { width: 58px; height: 64px; border-radius: 12px; background: rgba(255,154,64,.1); border: 1px solid rgba(255,154,64,.3); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+  .fire-spots .fs img { width: 38px; height: 38px; }
+  .fire-spots .fs em { font-style: normal; font-size: .7rem; font-weight: 700; color: #ffcf96; }
+  .fire-spots .fs.done { background: rgba(95,207,138,.14); border-color: rgba(95,207,138,.4); }
+  .fire-spots .fs.done em { color: #9be8b4; }
+  .fire-spots .fs.empty { background: transparent; border-style: dashed; border-color: var(--line); }
+  .fire-up .srow span em { font-style: normal; color: #ff9a7a; }
+  .fire-up .srow span em.have { color: #ffe3a8; }
+  .fire-up .sn span { white-space: normal; }
+  [data-pane="fire"] .sbtn:disabled { background: rgba(255,255,255,.07); color: rgba(244,233,210,.45); }
+  .fire-up .desc { font-size: .88rem; color: var(--dim); margin: 2px 0; }
   @media (max-width: 760px) {
     .shop-body { display: flex; flex-direction: column; overflow-y: auto; gap: 14px; }
     .shop-col { flex: none; min-height: auto; }
@@ -779,6 +792,6 @@
 <script src="ck-models-1.js?v=b0883c8c"></script>
 <script src="ck-models-2.js?v=634109df"></script>
 <script src="ck-tex.js?v=33cd4d08"></script>
-<script type="module" src="ck-game.js?v=57ce3a60"></script>
+<script type="module" src="ck-game.js?v=8fbfdeb0"></script>
 
 </html>
