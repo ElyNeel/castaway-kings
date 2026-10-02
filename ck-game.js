@@ -57949,6 +57949,17 @@ function peerOptions() {
   }
   return { config: ice, debug: 0 };
 }
+var PART = 4e3;
+var partNo = 0;
+function pieces(msg) {
+  const s = JSON.stringify(msg);
+  if (s.length <= PART) return [msg];
+  const id = (partNo++).toString(36) + Math.random().toString(36).slice(2, 6);
+  const n = Math.ceil(s.length / PART);
+  const out = [];
+  for (let i = 0; i < n; i++) out.push({ t: "~", id, i, n, d: s.slice(i * PART, (i + 1) * PART), ...msg.relay ? { relay: true } : {} });
+  return out;
+}
 var Net = class {
   constructor() {
     this.peer = null;
@@ -57958,6 +57969,7 @@ var Net = class {
     this.conns = /* @__PURE__ */ new Map();
     this.handlers = {};
     this.names = /* @__PURE__ */ new Map();
+    this.parts = /* @__PURE__ */ new Map();
   }
   get on() {
     return !!this.role;
@@ -58058,10 +58070,33 @@ var Net = class {
         if (this.isHost && msg.relay) {
           for (const [id, c] of this.conns) if (id !== conn.peer && c.open) c.send(msg);
         }
+        if (msg.t === "~") {
+          const k = msg.from + ":" + msg.id;
+          const b = this.parts.get(k) || { got: 0, d: [] };
+          if (b.d[msg.i] === void 0) {
+            b.d[msg.i] = msg.d;
+            b.got++;
+          }
+          if (b.got < msg.n) {
+            this.parts.set(k, b);
+            return;
+          }
+          this.parts.delete(k);
+          let full;
+          try {
+            full = JSON.parse(b.d.join(""));
+          } catch {
+            return;
+          }
+          if (!full || typeof full !== "object") return;
+          full.from = msg.from;
+          msg = full;
+        }
         this.emit("msg", msg);
       });
       conn.on("close", () => {
         this.conns.delete(conn.peer);
+        for (const k of [...this.parts.keys()]) if (k.startsWith(conn.peer + ":")) this.parts.delete(k);
         this.emit("left", conn.peer);
       });
       conn.on("error", () => {
@@ -58074,17 +58109,18 @@ var Net = class {
   // guests: to the host (relay=true so the host passes it on). host: to everyone, or one peer
   send(msg, to) {
     if (!this.role) return;
+    const go = (c) => {
+      if (c?.open) for (const m of pieces(msg)) c.send(m);
+    };
     if (this.isGuest) {
-      const c = [...this.conns.values()][0];
-      if (c?.open) c.send(msg);
+      go([...this.conns.values()][0]);
       return;
     }
     if (to) {
-      const c = this.conns.get(to);
-      if (c?.open) c.send(msg);
+      go(this.conns.get(to));
       return;
     }
-    for (const c of this.conns.values()) if (c.open) c.send(msg);
+    for (const c of this.conns.values()) go(c);
   }
   leave() {
     try {
@@ -68272,7 +68308,7 @@ var Cloud = class {
 
 // src/main.js
 var $2 = (s) => document.querySelector(s);
-var BUILD = true ? "2 Oct 2026, 19:18" : "dev";
+var BUILD = true ? "2 Oct 2026, 19:45" : "dev";
 var store = {
   get(k, d) {
     try {
@@ -68367,7 +68403,7 @@ async function syncSaves() {
   cloud.flush();
   return pulled;
 }
-var GAME = 12;
+var GAME = 13;
 var GUEST_SAVE = "guest_v1";
 var JOIN = ((/[?&]join=([A-Za-z0-9]{4})/.exec(location.search) || [])[1] || "").toUpperCase();
 var GOAL_SETS = [
@@ -70272,6 +70308,13 @@ function start(hotData = {}) {
       wireNet();
       note.textContent = "Found it. Washing ashore\u2026";
       net.send({ t: "hello", v: GAME, name: look.name || "Castaway", look });
+      setTimeout(() => {
+        if (!started && net.isGuest) {
+          note.textContent = "Your mate\u2019s island didn\u2019t come through. Both of you refresh the page, then try again.";
+          $2("#play").disabled = false;
+          net.leave();
+        }
+      }, 25e3);
     } catch (e) {
       $2("#play").disabled = false;
       note.textContent = "Couldn\u2019t find island " + JOIN + ". Check the code and that your mate still has their island open.";
