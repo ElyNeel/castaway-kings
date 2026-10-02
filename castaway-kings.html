@@ -579,6 +579,12 @@
   .m-card { width: min(420px, calc(100% - 32px)); background: var(--glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--line); border-radius: 22px; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
   .m-card h2 { font-family: var(--display); font-weight: 400; font-size: 2rem; margin: 0; }
   .m-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .m-ver { font-size: .78rem; color: var(--dim); text-align: center; }
+  #save-chip { font-size: .72rem; font-weight: 700; color: var(--seaglass); opacity: 0; transition: opacity .6s; white-space: nowrap; }
+  #save-chip.on { opacity: 1; transition: opacity .15s; }
+  #update-bar { position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 9; display: flex; gap: 10px; align-items: center; background: rgba(10,22,28,.95); border: 1px solid rgba(127,224,207,.45); color: var(--sand); padding: 8px 10px 8px 16px; border-radius: 14px; box-shadow: 0 8px 26px rgba(0,0,0,.4); max-width: calc(100% - 32px); }
+  #update-bar[hidden] { display: none; }
+  #update-bar .x { background: none; border: 0; color: var(--dim); font-size: 1.3rem; cursor: pointer; padding: 0 4px; }
   .m-row .btn { min-width: 150px; }
   /* settings */
   #settings { position: fixed; inset: 0; z-index: 7; display: grid; place-items: center; background: rgba(6,16,22,.45); }
@@ -657,7 +663,7 @@
 <div class="drag-note">Drag to turn your castaway</div>
 
 <div id="hud">
-  <div class="pill"><span id="lvl">Lv 1</span><span id="player-name">Castaway</span><span id="day">Day 1</span><span id="clock">17:00</span><span id="wx" hidden></span><span id="mp-pill" hidden></span><div id="xpbar"><i></i></div></div>
+  <div class="pill"><span id="lvl">Lv 1</span><span id="player-name">Castaway</span><span id="day">Day 1</span><span id="clock">17:00</span><span id="wx" hidden></span><span id="mp-pill" hidden></span><span id="save-chip" aria-live="polite"></span><div id="xpbar"><i></i></div></div>
   <button id="pause-btn" type="button" aria-label="Pause"><span></span></button>
   <div class="crosshair"></div>
   <div id="stats"></div>
@@ -706,11 +712,13 @@
   </div>
 </div>
 
+<div id="update-bar" hidden><span>A new version of the game is out.</span><button class="btn" id="update-btn" type="button">Update now</button><button class="x" id="update-later" type="button" aria-label="Later">×</button></div>
 <div id="menu">
   <div class="m-card" role="dialog" aria-label="Paused">
     <h2>Paused</h2>
     <div class="m-row"><span>Camera</span><button class="btn" id="m-view" type="button">First person</button></div>
     <div class="m-row"><span>Difficulty, graphics, sound and controls</span><button class="btn" id="m-settings" type="button">Settings</button></div>
+    <div class="m-row"><span id="m-save-note">Saves by itself every 20 seconds</span><button class="btn" id="m-save" type="button">Save now</button></div>
     <div class="m-row" id="m-cloud-row" hidden><span id="m-cloud-note">Online save</span><button class="btn" id="m-cloud" type="button">Sign in with Google</button></div>
     <div class="row" id="time-row">
       <label class="label" for="time-slider">Time of day (for testing)</label>
@@ -744,6 +752,7 @@
       <span class="h-touch"><b>Controls:</b> left thumb moves · drag right side to look · walk over things to pick them up · Grab gathers and searches (hold it to keep going) · Use swings, eats and builds · Dodge rolls out of the way · hold Block to guard · tap the hotbar to pick an item · Bag for crafting</span>
       <span class="h-pad"><b>Controls:</b> left stick move · right stick look · X grab (hold to keep going) · RT use · LT block · B dodge · LB/RB pick an item · Back bag · A jump · L3 run (press again to walk) · R3 crouch · Y camera · D-pad up turns a building · B puts it away</span>
     </p>
+    <p class="m-ver" id="m-ver"></p>
     <p class="credit">Characters and animations: Quaternius (CC0). Island, sea and sky made for this game.</p>
   </div>
 </div>
@@ -768,6 +777,6 @@
 <script src="ck-models-1.js?v=b0883c8c"></script>
 <script src="ck-models-2.js?v=634109df"></script>
 <script src="ck-tex.js?v=33cd4d08"></script>
-<script type="module" src="ck-game.js?v=21d6b51f"></script>
+<script type="module" src="ck-game.js?v=25cd931f"></script>
 
 </html>
