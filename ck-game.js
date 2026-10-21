@@ -41466,6 +41466,9 @@ var Character = class {
   }
 };
 
+// src/surfaces.json
+var surfaces_default = { sand: [0.2827, 0.2371, 0.196], wsand: [0.1517, 0.1183, 0.0742], grass: [0.3176, 0.2337, 0.1044], forest: [0.2903, 0.2468, 0.1183], rock: [0.0825, 0.0779, 0.0134], ash: [0.0434, 0.0344, 0.0255], mud: [0.0785, 0.0618, 0.0409], soil: [0.1315, 0.0495, 0.028] };
+
 // src/terrain.js
 var WORLD = 2400;
 var SEG = 872;
@@ -41937,6 +41940,7 @@ var Terrain = class {
       if (maxH < -9) continue;
       const n = (W2 + 1) * (D + 1);
       const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3), col2 = new Float32Array(n * 3);
+      const w0 = new Float32Array(n * 4), w1 = new Float32Array(n * 3);
       let k = 0;
       for (let j = cj; j <= cj + D; j++) for (let i = ci; i <= ci + W2; i++, k++) {
         const x = -half + i * step, z = -half + j * step, y = H3[j * N2 + i];
@@ -41954,24 +41958,66 @@ var Terrain = class {
         else if (y < 0.55) c.copy(SAND_WET).lerp(SAND, smoothstep2(-0.25, 0.55, y));
         else c.copy(SAND).lerp(SAND_DEEP, 0.3 * nz);
         const grassT = smoothstep2(2.1 + nz * 0.9, 3.2 + nz * 0.8, y);
-        tmp4.copy(GRASS).lerp(GRASS2, nz2).lerp(DIRT2, smoothstep2(0.62, 0.85, nz) * 0.6);
+        const dirtT = smoothstep2(0.62, 0.85, nz) * 0.6;
+        tmp4.copy(GRASS).lerp(GRASS2, nz2).lerp(DIRT2, dirtT);
         const onHome = x * x + z * z < 720 * 720;
+        let forestB = 0;
         if (onHome && grassT > 0) {
           const b = biome(x, z);
+          forestB = b.forest;
           tmp4.lerp(DRY, b.grass * 0.65).lerp(FOREST, b.forest * 0.3);
         }
         c.lerp(tmp4, grassT);
+        let wS = 1 - grassT, wG = grassT * (1 - forestB) * (1 - dirtT), wF = grassT * forestB * (1 - dirtT), wSo = grassT * dirtT, wR = 0, wA = 0, wM = 0;
         const rockT = clamp2(smoothstep2(0.28, 0.5, slope) + smoothstep2(38, 52, y) * 0.8, 0, 1) * smoothstep2(1.5, 4, y);
         tmp4.copy(ROCK).lerp(ROCK2, nz).lerp(MOSS, smoothstep2(0.35, 0.2, slope) * 0.5);
         c.lerp(tmp4, rockT);
+        {
+          const k2 = 1 - rockT;
+          wS *= k2;
+          wG *= k2;
+          wF *= k2;
+          wSo *= k2;
+          wR = rockT;
+        }
         if (onHome) {
           const dv = Math.hypot(x - VOLCANO.x, z - VOLCANO.z);
           const ash = smoothstep2(VOLCANO.r * 0.55, VOLCANO.r * 0.2, dv) * smoothstep2(34, 70, y) * (0.75 + 0.25 * nz);
-          if (ash > 0) c.lerp(ASH, ash * 0.85);
+          if (ash > 0) {
+            c.lerp(ASH, ash * 0.85);
+            const k2 = 1 - ash * 0.85;
+            wS *= k2;
+            wG *= k2;
+            wF *= k2;
+            wSo *= k2;
+            wR *= k2;
+            wA = ash * 0.85;
+          }
           if (y > 0.5) {
             const fw = freshWaterAt(x, z, 5);
-            if (fw !== null && y < fw + 1.4) c.lerp(MUD, 0.75 * smoothstep2(fw + 1.4, fw + 0.3, y));
+            if (fw !== null && y < fw + 1.4) {
+              const m = 0.75 * smoothstep2(fw + 1.4, fw + 0.3, y);
+              c.lerp(MUD, m);
+              const k2 = 1 - m;
+              wS *= k2;
+              wG *= k2;
+              wF *= k2;
+              wSo *= k2;
+              wR *= k2;
+              wA *= k2;
+              wM = m;
+            }
           }
+        }
+        {
+          const sum = wS + wG + wF + wR + wA + wM + wSo || 1;
+          w0[k * 4] = wS / sum;
+          w0[k * 4 + 1] = wG / sum;
+          w0[k * 4 + 2] = wF / sum;
+          w0[k * 4 + 3] = wR / sum;
+          w1[k * 3] = wA / sum;
+          w1[k * 3 + 1] = wM / sum;
+          w1[k * 3 + 2] = wSo / sum;
         }
         col2[k * 3] = c.r;
         col2[k * 3 + 1] = c.g;
@@ -41996,6 +42042,8 @@ var Terrain = class {
       g.setAttribute("position", new BufferAttribute(pos, 3));
       g.setAttribute("normal", new BufferAttribute(nrm, 3));
       g.setAttribute("color", new BufferAttribute(col2, 3));
+      g.setAttribute("aW0", new BufferAttribute(w0, 4));
+      g.setAttribute("aW1", new BufferAttribute(w1, 3));
       g.setIndex(new BufferAttribute(idx2, 1));
       g.computeBoundingSphere();
       g.computeBoundingBox();
@@ -42007,11 +42055,21 @@ var Terrain = class {
     detail.wrapS = detail.wrapT = RepeatWrapping;
     detail.anisotropy = 4;
     this.uniforms = { uTime: { value: 0 }, uSun: { value: 1 }, uDetail: { value: detail }, uWet: { value: 0 } };
+    this.loadSurfaces();
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, this.uniforms);
-      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos; varying vec3 vWNrm;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed,1.0)).xyz; vWNrm = normal;");
+      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos; varying vec3 vWNrm;").replace("#include <common>", "#include <common>\nattribute vec4 aW0; attribute vec3 aW1; varying vec4 vW0; varying vec3 vW1;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed,1.0)).xyz; vWNrm = normal; vW0 = aW0; vW1 = aW1;");
       sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
           varying vec3 vWPos; varying vec3 vWNrm; uniform float uTime; uniform float uSun; uniform sampler2D uDetail; uniform float uWet;
+          varying vec4 vW0; varying vec3 vW1; uniform highp sampler2DArray uMat; uniform highp sampler2DArray uMatN; uniform float uHasMat; uniform vec3 uMean[8];
+          // a photo layer, sampled twice (near scale, and a bigger rotated one) so the tiling doesn't show
+          vec3 matCol(int L, vec2 p, float sc) {
+            vec3 a = texture(uMat, vec3(p * sc, float(L))).rgb;
+            vec2 q = mat2(0.8, -0.6, 0.6, 0.8) * p * sc * 0.29 + vec2(0.31, 0.77);
+            vec3 b = texture(uMat, vec3(q, float(L))).rgb;
+            return pow(mix(a, b, 0.38), vec3(2.2)); // (stored as sRGB bytes; to linear here)
+          }
+          vec2 matNrm(int L, vec2 p, float sc) { return texture(uMatN, vec3(p * sc, float(L))).xy * 2.0 - 1.0; }
           ${GLSL_NOISE}
           // bumps from the painted detail (the same maths three.js uses for bump maps)
           vec3 ckPerturb(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDir) {
@@ -42023,8 +42081,33 @@ var Terrain = class {
             for(int i=0;i<2;i++){ q += vec2(sin(q.y*1.7+t*0.9), cos(q.x*1.5-t*0.7))*0.45; c += abs(sin(q.x*2.1+t)*cos(q.y*2.3-t*0.8)); }
             return pow(clamp(1.0-c*0.55,0.,1.),3.0);
           }`).replace("#include <color_fragment>", `#include <color_fragment>
-          float gH = 0.0;
-          {
+          float gH = 0.0; vec3 matPert = vec3(0.0);
+          if (uHasMat > 0.5) {
+            // the photo surfaces: each layer's detail (its colour over its average) on top of the painted ground colour,
+            // so the island keeps its colours (and its dry grass, ash and mud) but gets real sand, grass, rock and soil
+            vec3 wn = normalize(vWNrm);
+            float wet = smoothstep(0.9, 0.15, vWPos.y);
+            float W[8]; W[0] = vW0.x * (1.0 - wet); W[1] = vW0.x * wet; W[2] = vW0.y; W[3] = vW0.z; W[4] = vW0.w; W[5] = vW1.x; W[6] = vW1.y; W[7] = vW1.z;
+            float SC[8]; SC[0] = 0.24; SC[1] = 0.24; SC[2] = 0.3; SC[3] = 0.26; SC[4] = 0.16; SC[5] = 0.18; SC[6] = 0.26; SC[7] = 0.22;
+            float CO[8]; CO[0] = 1.1; CO[1] = 1.0; CO[2] = 1.7; CO[3] = 1.5; CO[4] = 1.25; CO[5] = 1.2; CO[6] = 1.2; CO[7] = 1.2; // how strongly each shows
+            vec3 det = vec3(0.0); vec2 pn = vec2(0.0); float wsum = 0.0;
+            vec3 bw = pow(abs(wn), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
+            for (int L = 0; L < 8; L++) {
+              float w = W[L]; if (w < 0.02) continue;
+              vec3 col; vec2 nn;
+              if ((L == 4 || L == 5) && bw.y < 0.92) {
+                // rock and ash on steep ground: mapped from three sides so cliffs don't smear
+                col = matCol(L, vWPos.zy, SC[L]) * bw.x + matCol(L, vWPos.xz, SC[L]) * bw.y + matCol(L, vWPos.xy, SC[L]) * bw.z;
+                nn = matNrm(L, vWPos.xz, SC[L]) * bw.y;
+              } else { col = matCol(L, vWPos.xz, SC[L]); nn = matNrm(L, vWPos.xz, SC[L]); }
+              det += ((col / max(uMean[L], vec3(0.004)) - 1.0) * CO[L] + 1.0) * w; pn += nn * w; wsum += w;
+            }
+            det /= max(wsum, 0.001); pn /= max(wsum, 0.001);
+            float dl = dot(det, vec3(0.299, 0.587, 0.114));
+            det = mix(vec3(dl), det, 0.55);             // keep a little of the photo's own colour variation
+            diffuseColor.rgb *= clamp(det, 0.15, 2.6);
+            matPert = vec3(pn.x, 0.0, pn.y) * 0.75;
+          } else {
             // grass gets brush strokes, sand gets grain, steep ground gets proper rock faces (mapped from three sides so cliffs don't smear)
             vec3 dA = texture2D(uDetail, vWPos.xz * 0.13).rgb, dB = texture2D(uDetail, vWPos.xz * 0.031 + vec2(0.37, 0.71)).rgb;
             vec3 wn = normalize(vWNrm); float slope = 1.0 - wn.y;
@@ -42063,7 +42146,8 @@ var Terrain = class {
               diffuseColor.rgb *= 1.0 + caustic(vWPos.xz, uTime*1.3) * fade * 0.9 * uSun;
             }
           }`).replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
-          normal = ckPerturb(-vViewPosition, normal, vec2(dFdx(gH), dFdy(gH)), faceDirection);`).replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
+          if (uHasMat > 0.5) normal = normalize(normal + mat3(viewMatrix) * matPert);
+          else normal = ckPerturb(-vViewPosition, normal, vec2(dFdx(gH), dFdy(gH)), faceDirection);`).replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
           roughnessFactor = mix(roughnessFactor, 0.45, smoothstep(0.5, 0.05, vWPos.y) * step(-0.3, vWPos.y));
           roughnessFactor = mix(roughnessFactor, 0.55, uWet * 0.6);`);
     };
@@ -42078,6 +42162,59 @@ var Terrain = class {
     this.material = mat;
     this.chunkCount = chunks.length;
     return group;
+  }
+  // the photo ground layers (tools/surfaces.py), stacked in two texture arrays: colour and normals. Until they've
+  // loaded (or if they can't), the ground uses the painted look.
+  loadSurfaces() {
+    const LAYERS = ["sand", "wsand", "grass", "forest", "rock", "ash", "mud", "soil"], S = 512, L2 = LAYERS.length;
+    const mk = (srgb) => {
+      const t = new DataArrayTexture(new Uint8Array(4 * 4), 1, 1, 1);
+      t.needsUpdate = true;
+      return t;
+    };
+    this.uniforms.uMat = { value: mk() };
+    this.uniforms.uMatN = { value: mk() };
+    this.uniforms.uHasMat = { value: 0 };
+    this.uniforms.uMean = { value: LAYERS.map((n) => new Vector3(...surfaces_default[n] || [0.2, 0.2, 0.2])) };
+    const img = (name) => new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = window.__CK_TEX && window.__CK_TEX[name] || "./assets/tex/" + name + ".webp";
+    });
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = S;
+    const g = cv.getContext("2d", { willReadFrequently: true });
+    const stack = async (suffix, srgb) => {
+      const data = new Uint8Array(S * S * 4 * L2);
+      for (let i = 0; i < L2; i++) {
+        const im = await img(`g_${LAYERS[i]}_${suffix}`);
+        g.clearRect(0, 0, S, S);
+        g.drawImage(im, 0, 0, S, S);
+        data.set(g.getImageData(0, 0, S, S).data, i * S * S * 4);
+      }
+      const t = new DataArrayTexture(data, S, S, L2);
+      t.format = RGBAFormat;
+      t.wrapS = t.wrapT = RepeatWrapping;
+      t.magFilter = LinearFilter;
+      t.minFilter = LinearMipmapLinearFilter;
+      t.generateMipmaps = true;
+      t.anisotropy = 4;
+      t.colorSpace = NoColorSpace;
+      t.needsUpdate = true;
+      return t;
+    };
+    (async () => {
+      try {
+        const [c, n] = [await stack("d", true), await stack("n", false)];
+        this.uniforms.uMat.value = c;
+        this.uniforms.uMatN.value = n;
+        this.uniforms.uHasMat.value = 1;
+        this.surfaces = true;
+      } catch (e) {
+        console.warn("ground surfaces", e?.message || e);
+      }
+    })();
   }
   buildHeightTexture() {
     const S = 512;
@@ -49071,7 +49208,9 @@ var Player = class {
       this.stepPhase += dt * rate * 2;
       if (this.stepPhase >= 1) {
         this.stepPhase -= 1;
-        this.onStep?.(depth > 0.05 ? "water" : gh < 3 ? "sand" : "grass", this.crouching ? hs * 0.3 : hs);
+        const tg = M2 ? -Infinity : this.terrain.heightAt(this.pos.x, this.pos.z);
+        const kind = depth > 0.05 ? "water" : M2 ? "stone" : this.raft || gh > tg + 0.12 ? "wood" : gh < 3 ? "sand" : "grass";
+        this.onStep?.(kind, this.crouching ? hs * 0.3 : hs);
       }
     }
     c.root.position.copy(this.pos);
@@ -49618,6 +49757,80 @@ var Input = class {
 };
 
 // src/audio.js
+var SMP = {
+  chop(v) {
+    this.smp("chop", 0.7 * v);
+  },
+  clack(v) {
+    this.smp("mine", 0.3 * v);
+  },
+  dig(v) {
+    this.smp("dig", 0.22 * v, 0, 0.9);
+    this.smp("step_sand", 0.16 * v, 0.06, 0.8);
+  },
+  knock(v) {
+    this.smp("knock", 0.56 * v);
+  },
+  build(v) {
+    this.smp("build", 0.59 * v);
+    this.smp("build", 0.41 * v, 0.16, 0.94);
+  },
+  smash(v) {
+    this.smp("woodbig", 0.95 * v, 0, 0.8);
+    this.smp("plate", 0.3 * v, 0.03, 0.7);
+  },
+  timber(v) {
+    this.smp("creak", 0.7 * v, 0, 0.8);
+    this.smp("creak", 0.5 * v, 0.55, 0.7);
+    this.smp("woodbig", 0.95 * v, 1.2, 0.6);
+    this.smp("thud", 0.9 * v, 1.26, 0.7);
+  },
+  hit(v) {
+    this.smp("hit", 1.3 * v);
+  },
+  hurt(v) {
+    this.smp("hurt", 1.3 * v);
+  },
+  thud(v) {
+    this.smp("thud", 1.15 * v);
+  },
+  roll(v) {
+    this.smp("cloth", 0.27 * v, 0, 0.8);
+    this.smp("thud", 0.15 * v, 0.14);
+  },
+  block(v) {
+    this.smp("block", 0.62 * v);
+  },
+  parry(v) {
+    this.smp("parry", 0.35 * v, 0, 1.15);
+  },
+  whoosh(v) {
+    this.smp("swing", 0.3 * v);
+  },
+  rustle(v) {
+    this.smp("cloth", 1 * v, 0, 1.2, 0.12);
+  },
+  pop(v) {
+    this.smp("ui_drop", 0.24 * v, 0, 1.2);
+  },
+  craft(v) {
+    this.smp("belt", 0.26 * v);
+    this.smp("leather", 0.21 * v, 0.12);
+  },
+  snip(v) {
+    this.smp("slice", 0.55 * v);
+  },
+  levelup(v) {
+    this.smp("levelup", 0.3 * v, 0, 1, 0);
+  },
+  win(v) {
+    this.smp("win", 0.29 * v, 0, 1, 0);
+  },
+  drum(v) {
+    this.smp("drum", 1.45 * v, 0, 1, 0.02);
+  }
+};
+var STEP = { grass: "step_grass", sand: "step_sand", wood: "step_wood", stone: "step_stone" };
 var IslandAudio = class {
   constructor() {
     this.ctx = null;
@@ -49638,9 +49851,16 @@ var IslandAudio = class {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     const ctx = this.ctx = new AC();
+    this.limit = ctx.createDynamicsCompressor();
+    this.limit.threshold.value = -6;
+    this.limit.knee.value = 6;
+    this.limit.ratio.value = 8;
+    this.limit.attack.value = 3e-3;
+    this.limit.release.value = 0.2;
+    this.limit.connect(ctx.destination);
     this.master = ctx.createGain();
     this.master.gain.value = 0.7 * this.vol;
-    this.master.connect(ctx.destination);
+    this.master.connect(this.limit);
     const noise = (sec = 4) => {
       const b = ctx.createBuffer(1, ctx.sampleRate * sec, ctx.sampleRate);
       const d = b.getChannelData(0);
@@ -49734,6 +49954,55 @@ var IslandAudio = class {
     osc.start();
     am.start();
     this.on = true;
+    this.loadSfx();
+  }
+  // the recordings: decoded once, in the background
+  async loadSfx() {
+    if (this.SB || this.sbLoading || !this.ctx) return;
+    this.sbLoading = true;
+    try {
+      const data = window.__CK_SFX || await fetch(window.__CK_SFX_URL || "./assets/sfx.json").then((r) => r.json());
+      const dec = (b) => {
+        const t = atob(b), u = new Uint8Array(t.length);
+        for (let i = 0; i < t.length; i++) u[i] = t.charCodeAt(i);
+        return this.ctx.decodeAudioData(u.buffer).catch(() => null);
+      };
+      const SB = {};
+      await Promise.all(Object.entries(data).map(async ([k, list]) => {
+        SB[k] = (await Promise.all(list.map(dec))).filter(Boolean);
+      }));
+      this.lastTake = {};
+      this.SB = SB;
+    } catch (e) {
+      console.warn("sfx", e?.message);
+    }
+  }
+  // play a recorded sound: one of its takes (never the same one twice running), pitched a touch up or down
+  smp(k, v = 1, when = 0, rate = 1, vary = 0.05) {
+    const L2 = this.SB?.[k];
+    if (!L2 || !L2.length || !this.on) return false;
+    let i = Math.floor(Math.random() * L2.length);
+    if (L2.length > 1 && i === this.lastTake[k]) i = (i + 1) % L2.length;
+    this.lastTake[k] = i;
+    const t = this.ctx.currentTime + when, s = this.ctx.createBufferSource();
+    s.buffer = L2[i];
+    s.playbackRate.value = rate * (1 + (Math.random() * 2 - 1) * vary);
+    const g = this.ctx.createGain();
+    g.gain.value = v;
+    s.connect(g);
+    g.connect(this.master);
+    s.start(t);
+    return true;
+  }
+  // menu sounds: click, select, open, close, error, switch, tick, ok
+  ui(name, v = 1) {
+    if (this.SB) this.smp("ui_" + name, 0.32 * v, 0, 1, 0.03);
+  }
+  coins(v = 1) {
+    if (!this.smp("coins", 0.5 * v)) this.sfx("pop", v);
+  }
+  door(open, v = 1) {
+    if (!this.smp(open ? "dooropen" : "door", 0.5 * v)) this.sfx("knock", v);
   }
   stop() {
     this.ctx?.suspend();
@@ -49813,6 +50082,10 @@ var IslandAudio = class {
   sfx(name, vol = 1) {
     if (!this.ctx || !this.on) return;
     const v = vol;
+    if (this.SB && SMP[name]) {
+      SMP[name].call(this, v);
+      return;
+    }
     switch (name) {
       case "pop":
         this.tone(520, 880, 0.09, "sine", 0.12 * v);
@@ -49949,6 +50222,11 @@ var IslandAudio = class {
   }
   step(kind, speed) {
     if (!this.ctx || !this.on) return;
+    if (this.SB && STEP[kind]) {
+      this.smp(STEP[kind], (kind === "sand" ? 0.12 : kind === "grass" ? 0.085 : 0.11) * Math.min(1.4, 0.45 + speed / 6), 0, kind === "sand" ? 1.15 : 1, 0.08);
+      return;
+    }
+    if (kind === "wood" || kind === "stone") kind = "grass";
     const ctx = this.ctx, now = ctx.currentTime;
     const len = 0.09;
     const b = ctx.createBuffer(1, ctx.sampleRate * len, ctx.sampleRate);
@@ -50050,13 +50328,34 @@ function strawTexture() {
   t.anisotropy = 4;
   return t;
 }
+function photo(mat, name, scale = 1, normal = 0.8) {
+  const src = (n) => window.__CK_TEX && window.__CK_TEX[n] || "./assets/tex/" + n + ".webp";
+  const ld = new TextureLoader();
+  const set = (t, srgb) => {
+    t.colorSpace = srgb ? SRGBColorSpace : NoColorSpace;
+    t.wrapS = t.wrapT = RepeatWrapping;
+    t.anisotropy = 4;
+    t.repeat.set(scale, scale);
+    return t;
+  };
+  ld.load(src(`b_${name}_d`), (t) => {
+    mat.map = set(t, true);
+    mat.needsUpdate = true;
+  });
+  ld.load(src(`b_${name}_n`), (t) => {
+    mat.normalMap = set(t, false);
+    mat.normalScale.set(normal, normal);
+    mat.needsUpdate = true;
+  });
+  return mat;
+}
 function pieceMats() {
   if (mats2) return mats2;
   mats2 = {
-    wood: new MeshStandardMaterial({ map: woodTexture("#b08a5e", "#5a3e26", 6), vertexColors: true, roughness: 0.85 }),
-    stone: new MeshStandardMaterial({ map: stoneTexture(), vertexColors: true, roughness: 0.95 }),
-    straw: new MeshStandardMaterial({ map: strawTexture(), vertexColors: true, roughness: 0.95, side: DoubleSide }),
-    bamboo: new MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: DoubleSide })
+    wood: photo(new MeshStandardMaterial({ map: woodTexture("#b08a5e", "#5a3e26", 6), vertexColors: true, roughness: 0.85 }), "planks"),
+    stone: photo(new MeshStandardMaterial({ map: stoneTexture(), vertexColors: true, roughness: 0.95 }), "stone", 1, 1),
+    straw: photo(new MeshStandardMaterial({ map: strawTexture(), vertexColors: true, roughness: 0.95, side: DoubleSide }), "thatch", 1.2, 1),
+    bamboo: photo(new MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: DoubleSide }), "bamboo")
   };
   return mats2;
 }
@@ -64020,7 +64319,7 @@ var World = class {
     s.open = open;
     setDoor(s.obj, open);
     for (const c of s.colliders) c.dead = open;
-    this.sfx("knock");
+    this.sfx(open ? "dooropen" : "door");
   }
   // standing height on floors and stairs (or -Infinity when there's none under you)
   supportAt(x, z, y) {
@@ -68308,7 +68607,7 @@ var Cloud = class {
 
 // src/main.js
 var $2 = (s) => document.querySelector(s);
-var BUILD = true ? "2 Oct 2026, 19:45" : "dev";
+var BUILD = true ? "21 Oct 2026, 10:05" : "dev";
 var store = {
   get(k, d) {
     try {
@@ -68600,18 +68899,24 @@ function start(hotData = {}) {
   scene.add(camera);
   const composer = new EffectComposer(renderer, new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 }));
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new Vector2(256, 256), 0.32, 0.55, 0.92);
+  const bloom = new UnrealBloomPass(new Vector2(256, 256), 0.28, 0.42, 0.95);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   const grade = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, uSat: { value: 1.16 }, uVig: { value: 0.28 }, uNight: { value: 0 }, uHurt: { value: 0 }, uStorm: { value: 0 } },
+    uniforms: { tDiffuse: { value: null }, uSat: { value: 1.13 }, uVig: { value: 0.28 }, uNight: { value: 0 }, uHurt: { value: 0 }, uStorm: { value: 0 }, uTime: { value: 0 }, uGrain: { value: 0.022 } },
     vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
-    fragmentShader: `uniform sampler2D tDiffuse; uniform float uSat, uVig, uNight, uHurt, uStorm; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float uSat, uVig, uNight, uHurt, uStorm, uTime, uGrain; varying vec2 vUv;
+      float gHash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
       void main(){ vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.299,0.587,0.114));
+        // the grade: cool shadows and warm highlights, and a gentle S curve (Heist Kings' look)
+        c.rgb += mix(vec3(-0.012, 0.0, 0.022), vec3(0.026, 0.012, -0.016), smoothstep(0.15, 0.75, l)) * (1.0 - uNight * 0.6);
+        c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * clamp(c.rgb, 0.0, 1.0)), 0.16);
+        l = dot(c.rgb, vec3(0.299,0.587,0.114));
         c.rgb = mix(vec3(l), c.rgb, uSat * (1.0 - uHurt*0.5) * (1.0 - uStorm*0.42)); c.rgb = mix(c.rgb, c.rgb*vec3(0.85,0.95,1.2), uNight*0.35);
         c.rgb *= mix(vec3(1.0), vec3(0.8, 0.86, 0.93), uStorm);
         float r = length(vUv-0.5)*1.25; float v = smoothstep(0.85, 0.25, r); c.rgb *= mix(1.0 - uVig - uHurt*0.35, 1.0, v);
         c.rgb = mix(c.rgb, vec3(0.45,0.02,0.0), uHurt*0.35*smoothstep(0.35,0.85,r));
+        c.rgb += (gHash(floor(gl_FragCoord.xy) + fract(uTime * 7.0) * vec2(97.0, 41.0)) - 0.5) * uGrain; // a touch of film grain
         gl_FragColor = c; }`
   });
   composer.addPass(grade);
@@ -68654,6 +68959,11 @@ function start(hotData = {}) {
     }
   }
   const audio = new IslandAudio();
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest?.("button, .btn, .tbtn, .chip, .linkbtn, .tab, [data-tab]");
+    if (!b || b.disabled) return;
+    audio.ui(b.matches(".tab, [data-tab], .chip") ? "select" : "click");
+  }, true);
   const inv = new Inventory();
   const stats = new Survival();
   const progress = new Progress();
@@ -68834,7 +69144,7 @@ function start(hotData = {}) {
     world.toast = (t2, id) => ui.toast(t2, id);
     world.onEvent = onWorldEvent;
     world.onXP = (n) => gainXP(n);
-    world.sfx = (n) => audio.sfx(n);
+    world.sfx = (n) => n === "door" || n === "dooropen" ? audio.door(n === "dooropen") : audio.sfx(n);
     world.canStorm = () => !net.isGuest;
     crew = new Crew({ scene, terrain, world });
     crew.setup();
@@ -71196,7 +71506,51 @@ function start(hotData = {}) {
     renderCreator();
     cloudUI();
   }
+  let titleOn = false, titleT = 0;
+  function showTitle() {
+    titleOn = true;
+    titleT = 0;
+    document.body.dataset.title = "1";
+    $2("#tt-play").textContent = $2("#play").textContent;
+    const s = store.get(SAVE, null), pr = s?.progress || {}, items = [];
+    if (s) {
+      items.push(`Day ${s.day} on the island`);
+      if (pr.raids) items.push(`${pr.raids} night${pr.raids === 1 ? "" : "s"} held`);
+      if (pr.kills) items.push(`${pr.kills} crabs, boars and worse put down`);
+      if (pr.crafted) items.push(`${pr.crafted} things made by hand`);
+      if (pr.found?.length) items.push(`${pr.found.length} hidden spot${pr.found.length === 1 ? "" : "s"} found`);
+    } else items.push("A castaway has washed up on the north-west beach");
+    items.push(
+      "Storms roll in after lunch: get a roof on before they do",
+      "Kiyyah and Saleenah trade on the beach from day 2",
+      "Something big lives out past the reef",
+      "The crew washed up somewhere on this island",
+      "Find the lookout and the whole island goes on your map",
+      "Build a boat. Get home.",
+      "Bring your mates: host your island from the pause menu"
+    );
+    $2("#tt-track").innerHTML = items.map((x) => x.replace(/[<>&]/g, "")).join("<i>\u2726</i>") + "<i>\u2726</i>";
+    $2("#tt-track").style.setProperty("--tt-secs", Math.max(30, items.join("").length * 0.16) + "s");
+  }
+  function hideTitle() {
+    titleOn = false;
+    delete document.body.dataset.title;
+  }
+  $2("#tt-play").addEventListener("click", () => {
+    hideTitle();
+    $2("#play").click();
+  });
+  $2("#tt-make").addEventListener("click", () => {
+    hideTitle();
+  });
+  addEventListener("keydown", (e) => {
+    if (titleOn && mode === "creator" && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault();
+      $2("#tt-play").click();
+    }
+  });
   function beginPlay(fromCreator) {
+    if (titleOn) hideTitle();
     const wasStarted = started;
     mode = "play";
     document.body.dataset.mode = "play";
@@ -71480,6 +71834,7 @@ function start(hotData = {}) {
     document.exitPointerLock?.();
     input.pressed.clear();
     menuOpenedAt = performance.now();
+    audio.ui("open", 0.8);
     if (!ui.chest) {
       const near2 = inv.nearby?.() || [];
       if (near2.length) ui.chest = { s: near2.reduce((a, b) => Math.hypot(a.x - player.pos.x, a.z - player.pos.z) < Math.hypot(b.x - player.pos.x, b.z - player.pos.z) ? a : b) };
@@ -71487,6 +71842,7 @@ function start(hotData = {}) {
     ui.openBag(tab);
   }
   function closeBag() {
+    if (ui.bagOpen) audio.ui("close", 0.8);
     if (ui.chest) {
       setLid(ui.chest.s.obj, false);
       ui.chest = null;
@@ -71667,9 +72023,11 @@ function start(hotData = {}) {
     const c0 = inv.coins;
     if (op === "buy") {
       const err = buy(d, inv, a, b, applyUpgrade);
-      if (err) ui.toast(err);
-      else {
-        audio.sfx("pop");
+      if (err) {
+        ui.toast(err);
+        audio.ui("error");
+      } else {
+        audio.coins();
         if (a === "item") ui.toast(`Bought a ${ITEMS[b].name.toLowerCase()} for ${c0 - inv.coins} coins. You've got ${inv.count(b)} now.`, b);
         onSeen(b);
       }
@@ -71677,7 +72035,7 @@ function start(hotData = {}) {
       const got = sell(d, inv, a, b);
       if (got) {
         ui.toast(`Sold for ${got} coins`);
-        audio.sfx("pop");
+        audio.coins();
       }
     }
     if (inv.coins !== c0) {
@@ -72690,6 +73048,7 @@ function start(hotData = {}) {
     }
     fx.update(dt, renderer.domElement.height * 0.5 / Math.tan(MathUtils.degToRad(camera.fov / 2)));
     updateSlash(dt);
+    grade.uniforms.uTime.value = t;
     grade.uniforms.uNight.value = sky.nightF;
     grade.uniforms.uStorm.value = player?.mine ? 0 : stormNow;
     grade.uniforms.uHurt.value = mode === "play" ? Math.max(MathUtils.clamp((30 - stats.health) / 30, 0, 1) * (0.7 + 0.3 * Math.sin(t * 4)), stats.flash * 0.8) : 0;
@@ -72697,21 +73056,33 @@ function start(hotData = {}) {
       const r = character.root;
       r.rotation.y = Math.atan2(seaDir.x, seaDir.z) + turn + Math.sin(t * 0.4) * 0.05;
       const portrait = innerWidth < innerHeight || innerWidth < 720;
-      const dist = portrait ? 6.2 : 5.2;
+      let dist = portrait ? 6.2 : 5.2;
       const base = r.position.clone();
       const toSea = seaDir.clone();
       const side = new Vector3(-toSea.z, 0, toSea.x);
-      camera.fov = portrait ? 38 : 30;
-      camera.position.copy(base).addScaledVector(toSea, dist).addScaledVector(side, portrait ? 0 : 0.6);
-      camera.position.y = base.y + (portrait ? 1.35 : 1.25);
-      camTarget.copy(base).addScaledVector(side, portrait ? 0 : 1.15);
-      camTarget.y = base.y + (portrait ? 0.15 : 0.95);
+      if (titleOn) {
+        titleT += dt;
+        const k = 1 - Math.exp(-titleT / 10);
+        r.rotation.y = Math.atan2(-seaDir.x, -seaDir.z) + 0.35 + Math.sin(t * 0.4) * 0.05;
+        dist = (portrait ? 9.5 : 8.8) - 2.4 * k;
+        camera.fov = portrait ? 44 : 34;
+        camera.position.copy(base).addScaledVector(toSea, -dist).addScaledVector(side, portrait ? 0.3 : -1.2 + 0.4 * k);
+        camera.position.y = Math.max(base.y + (portrait ? 1.9 : 2), terrain.heightAt(camera.position.x, camera.position.z) + 1.2);
+        camTarget.copy(base).addScaledVector(side, portrait ? 0.15 : -1.5);
+        camTarget.y = base.y + (portrait ? 1.05 : 1.3);
+      } else {
+        camera.fov = portrait ? 38 : 30;
+        camera.position.copy(base).addScaledVector(toSea, dist).addScaledVector(side, portrait ? 0 : 0.6);
+        camera.position.y = base.y + (portrait ? 1.35 : 1.25);
+        camTarget.copy(base).addScaledVector(side, portrait ? 0 : 1.15);
+        camTarget.y = base.y + (portrait ? 0.15 : 0.95);
+      }
       camera.lookAt(camTarget);
       camera.near = 0.1;
       camera.updateProjectionMatrix();
       if (!JOIN) {
-        const dx = base.x + side.x * 0.8 + toSea.x * 0.45, dz = base.z + side.z * 0.8 + toSea.z * 0.45;
-        dog.preview(dt, dx, terrain.heightAt(dx, dz), dz, Math.atan2(toSea.x, toSea.z) + 0.6);
+        const f = titleOn ? -1 : 1, dx = base.x + side.x * 0.8 * f + toSea.x * 0.45 * f, dz = base.z + side.z * 0.8 * f + toSea.z * 0.45 * f;
+        dog.preview(dt, dx, terrain.heightAt(dx, dz), dz, Math.atan2(toSea.x * f, toSea.z * f) + 0.6);
       } else dog.mesh.visible = false;
     } else if (mode === "ending") {
     } else if (player) {
@@ -72779,12 +73150,14 @@ function start(hotData = {}) {
   build().then(() => {
     $2("#loading").classList.add("done");
     showCreator();
+    if (!JOIN) showTitle();
     refreshGoals();
     GOAL_SETS.forEach((_, i) => {
       if (setDone(i)) unlockSet(i, true);
     });
     if (!TEST) requestAnimationFrame(() => frame());
     window.__ck = {
+      audio,
       cloud,
       syncSaves,
       cloudUI,
