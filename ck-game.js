@@ -41363,7 +41363,16 @@ var Character = class {
       "OverhandThrow",
       "Yes",
       "Sword_Regular_A",
-      "Hit_Knockback"
+      "Hit_Knockback",
+      "Sitting_Enter",
+      "Sitting_Exit",
+      "Death01",
+      "Hit_Chest",
+      "Hit_Head",
+      "Punch_Cross",
+      "Sword_Regular_B",
+      "Sword_Regular_C",
+      "ClimbUp_1m"
     ]) {
       if (this.actions[n]) {
         this.actions[n].setLoop(LoopOnce);
@@ -43035,7 +43044,25 @@ var LEAF_GLOW = `
   #endif`;
 
 // src/vegetation.js
-var NATURE_FILES = ["n_rock1", "n_rock2", "n_rock3", "n_fern", "n_plant1", "n_plant1big", "n_flower3", "n_flower4", "n_mushroom", "n_bushflowers"];
+var NATURE_FILES = [
+  "n_rock1",
+  "n_rock2",
+  "n_rock3",
+  "n_fern",
+  "n_plant1",
+  "n_plant1big",
+  "n_flower3",
+  "n_flower4",
+  "n_mushroom",
+  "n_bushflowers",
+  "n_plant7",
+  "n_plant7big",
+  "n_clover",
+  "n_bush",
+  "n_pebble1",
+  "n_pebble2",
+  "n_pebble3"
+];
 function floatGeo(g) {
   const out = new BufferGeometry();
   for (const name of ["position", "normal", "uv"]) {
@@ -43621,7 +43648,14 @@ var Vegetation = class {
         if (!this.low) m.alphaToCoverage = true;
         return m;
       };
-      this.natMats = { Rocks: new MeshStandardMaterial({ map: loadTex("n_rocks", true), roughness: 0.92 }), Leaves: leafMat("n_leaves"), Flowers: leafMat("n_flowers"), Leaves_NormalTree: leafMat("n_bushleaves"), Mushrooms: new MeshStandardMaterial({ map: loadTex("n_mush", true), roughness: 0.7 }) };
+      this.natMats = {
+        Rocks: new MeshStandardMaterial({ map: loadTex("n_rocks", true), roughness: 0.92 }),
+        Leaves: leafMat("n_leaves"),
+        Flowers: leafMat("n_flowers"),
+        Leaves_NormalTree: leafMat("n_bushleaves"),
+        Mushrooms: new MeshStandardMaterial({ map: loadTex("n_mush", true), roughness: 0.7 }),
+        PathRocks: new MeshStandardMaterial({ map: loadTex("n_pathrocks", true), roughness: 0.7, color: "#cfc6b6" })
+      };
       const rockFrom = (parts) => {
         const g = parts[0].geo.clone();
         g.computeBoundingBox();
@@ -44176,17 +44210,19 @@ var Undergrowth = class {
     this.noise = makeSimplex(83);
     this.kinds = [];
     const N2 = veg.nature, M2 = veg.natMats;
-    const add = (file, w, s0, s1, near2 = 9) => {
+    const add = (file, w, s0, s1, near2 = 9, o = {}) => {
+      if (!N2[file]) return;
       const ims = N2[file].map((p) => {
-        const im = new InstancedMesh(p.geo, M2[p.mat] || M2.Leaves, 1500);
+        const im = new InstancedMesh(p.geo, M2[o.mat || p.mat] || M2.Leaves, o.cap || 1500);
         im.count = 0;
         im.frustumCulled = false;
         im.receiveShadow = true;
+        im.castShadow = !!o.shadow;
         im.name = "undergrowth";
         scene.add(im);
         return im;
       });
-      this.kinds.push({ file, w, s0, s1, ims, near: near2 });
+      this.kinds.push({ file, w, s0, s1, ims, near: near2, beach: !!o.beach });
     };
     add("n_fern", (b) => b.forest * 1.3, 0.26, 0.4);
     add("n_plant1", (b) => 0.15 + b.forest * 0.6, 0.8, 1.3);
@@ -44195,6 +44231,13 @@ var Undergrowth = class {
     add("n_flower3", (b) => b.grass * 0.22, 0.35, 0.5, 2);
     add("n_flower4", (b) => b.grass * 0.06, 0.3, 0.42, 1.5);
     add("n_bushflowers", (b) => 0.03 + b.forest * 0.04, 0.6, 0.9, 2);
+    add("n_plant7", (b) => 0.03 + b.forest * 0.12, 1.3, 2);
+    add("n_plant7big", (b) => b.forest * 0.08 + b.grass * 0.03, 1.2, 1.8);
+    add("n_clover", (b) => b.grass * 0.12 + b.forest * 0.05, 0.5, 0.8, 2);
+    add("n_bush", (b) => 0.02 + b.forest * 0.05 + b.grass * 0.03, 0.8, 1.3, 2.5, { shadow: true, cap: 400, mat: "Leaves_NormalTree" });
+    add("n_pebble1", (b, h2) => h2 < 1.5 ? 0.5 : 0.15, 0.9, 1.6, 2, { beach: true });
+    add("n_pebble2", (b, h2) => h2 < 1.5 ? 0.45 : 0.12, 0.9, 1.7, 2, { beach: true });
+    add("n_pebble3", (b, h2) => h2 < 1.5 ? 0.35 : 0.1, 0.9, 1.5, 2, { beach: true });
   }
   update(pos) {
     const cx = Math.floor(pos.x / this.cell), cz = Math.floor(pos.z / this.cell);
@@ -44245,13 +44288,14 @@ var Undergrowth = class {
     for (let t = 0; t < this.per * 2 && out.length < this.per; t++) {
       const x = (cx + rand()) * this.cell, z = (cz + rand()) * this.cell;
       const r1 = rand(), r2 = rand(), r3 = rand(), r4 = rand();
-      const h2 = T2.heightAt(x, z);
-      if (h2 < 2.8 || h2 > 55 || T2.slopeAt(x, z) > 0.32 || this.noise(x * 0.045, z * 0.045) < -0.25) continue;
+      const h2 = T2.heightAt(x, z), beach = h2 < 2.8;
+      if (h2 < 0.3 || h2 > 55 || T2.slopeAt(x, z) > 0.32) continue;
+      if (beach ? r3 > 0.3 : this.noise(x * 0.045, z * 0.045) < -0.25) continue;
       if (freshWaterAt(x, z, 1.2) !== null || this.blocked && this.blocked(x, z, h2)) continue;
       const b = biome(x, z);
       let tot = 0;
       const ws = this.kinds.map((kd2) => {
-        const w = Math.max(0, kd2.w(b));
+        const w = kd2.beach === beach ? Math.max(0, kd2.w(b, h2)) : 0;
         tot += w;
         return w;
       });
@@ -44316,6 +44360,14 @@ function woodTexture(base = "#7a5634", lines = "#4a321d", planks2 = 6) {
   t.wrapS = t.wrapT = RepeatWrapping;
   t.anisotropy = 4;
   return t;
+}
+function setCargoWater(o, n, max) {
+  const w = o?.userData?.water;
+  if (!w) return;
+  w.visible = n > 0;
+  const t = 0.5 + Math.min(1, n / max) * 0.4;
+  w.position.y = t * 0.95;
+  w.scale.setScalar((0.32 + Math.sin(t * Math.PI) * 0.07) * 0.94);
 }
 var Props = class {
   constructor(scene, terrain, spawn, colliders) {
@@ -44453,6 +44505,8 @@ var Props = class {
     const barrelGeo = new LatheGeometry(barrelPts, 14);
     const barrelMat = new MeshStandardMaterial({ map: woodTexture("#7c5a36", "#2c2016", 3), roughness: 0.8 });
     const hoopMat = new MeshStandardMaterial({ color: "#3b3632", roughness: 0.5, metalness: 0.6 });
+    const barrelInMat = new MeshStandardMaterial({ map: barrelMat.map, color: "#a08c74", emissive: "#1a120a", roughness: 0.9, side: BackSide });
+    const cargoWaterMat = new MeshStandardMaterial({ color: "#2f7f98", emissive: "#0d3442", roughness: 0.06, metalness: 0.2, transparent: true, opacity: 0.9 });
     const cargo = [
       ["crate", 6.5, -2.5, 0.3],
       ["crate", 7.3, -1.6, 1.1],
@@ -44479,6 +44533,24 @@ var Props = class {
           h2.rotation.x = Math.PI / 2;
           h2.position.y = y;
           o.add(h2);
+        }
+        const inner = new Mesh(barrelGeo, barrelInMat);
+        inner.scale.set(0.95, 1, 0.95);
+        o.add(inner);
+        const bottom = new Mesh(new CircleGeometry(0.31, 14), barrelInMat);
+        bottom.rotation.x = -Math.PI / 2;
+        bottom.position.y = 0.05;
+        o.add(bottom);
+        if (rot < 1) {
+          const w = new Mesh(new CircleGeometry(1, 18), cargoWaterMat);
+          w.rotation.x = -Math.PI / 2;
+          w.receiveShadow = true;
+          o.add(w);
+          o.userData.water = w;
+          const lid = new Mesh(new CylinderGeometry(0.33, 0.33, 0.04, 14), barrelMat);
+          lid.position.set(0.44, 0.3, 0.14);
+          lid.rotation.set(0.1, rot, 1.25);
+          o.add(lid);
         }
         o.position.set(p.x, p.y - 0.05, p.z);
         if (rot > 1) {
@@ -49209,9 +49281,31 @@ var Player = class {
     }
     if (!this.action || this.action.mobile) {
       this.action = null;
-      this.c.play("Hit_Knockback", 0.08, 1.4, true);
-      this.hitAnimT = 0.45;
+      this.hitN = (this.hitN || 0) + 1;
+      if (strength > 4) {
+        this.c.play("Hit_Knockback", 0.08, 1.4, true);
+        this.hitAnimT = 0.45;
+      } else {
+        this.c.play(this.hitN % 2 ? "Hit_Chest" : "Hit_Head", 0.06, 1, true);
+        this.hitAnimT = 0.38;
+      }
     }
+  }
+  // knocked out or passed out: you go down (and stay down while the screen fades)
+  down() {
+    this.sitting = 0;
+    this.blocking = false;
+    this.dancing = false;
+    this.crouching = false;
+    this.vel.set(0, 0, 0);
+    this.knock.set(0, 0, 0);
+    this.action = { anim: "Death01", dur: 99, impact: 99, t: 0 };
+    this.c.play("Death01", 0.12, 1, true);
+  }
+  // ...and come round again where you woke up: getting up off the ground
+  wake() {
+    this.action = { anim: "LayToIdle", dur: 1.5, impact: 9, t: 0 };
+    this.c.play("LayToIdle", 0.05, 1, true);
   }
   // start a one-shot action; returns false if the player is busy
   startAction(a) {
@@ -49443,10 +49537,11 @@ var Player = class {
     } else if (this.action || this.sitting || this.hitAnimT > 0) {
     } else if (this.swimming) c.play(hs > 0.4 ? "Swim_Fwd_Loop" : "Swim_Idle_Loop", 0.35, hs > 0.4 ? Math.max(0.7, hs / 2.2) : 1);
     else if (!this.onGround) {
-      if (this.airTime > 0.28 || c.current !== "Jump_Start") c.play("Jump_Loop", 0.2);
+      if (c.current === "ClimbUp_1m" && this.climbT > 0) {
+      } else if (this.airTime > 0.28 || c.current !== "Jump_Start") c.play("Jump_Loop", 0.2);
     } else if (this.landT > 0 && hs < 3) {
     } else if (this.crouching) c.play(hs < 0.25 ? "Crouch_Idle_Loop" : "Crouch_Fwd_Loop", 0.25, hs < 0.25 ? 1 : Math.max(0.6, hs / 1.6));
-    else if (hs < 0.25) c.play(this.dancing ? "Dance_Loop" : "Idle_Loop", 0.3);
+    else if (hs < 0.25) c.play(this.dancing ? "Dance_Loop" : this.holdId === "torch" && this.view === "tp" ? "Idle_Torch_Loop" : "Idle_Loop", 0.3);
     else if (hs < 2.6) c.play("Walk_Loop", 0.25, hs / 1.55);
     else if (hs < 5.6) c.play("Jog_Fwd_Loop", 0.25, hs / 4.1);
     else c.play("Sprint_Loop", 0.25, hs / 6.9);
@@ -49532,6 +49627,8 @@ var Player = class {
     } else if (wall && !step && !this.action && !hit(this.pos.x, this.pos.y + 0.12, this.pos.z)) {
       this.climbT = (this.climbT || 0) + dt;
       if (this.climbT > 0.35) {
+        if (this.onGround || this.c.current !== "ClimbUp_1m") this.c.play("ClimbUp_1m", 0.08, 1.1, true);
+        this.landT = 0.5;
         this.vel.y = 3.2;
         this.onGround = false;
         this.airTime = 0;
@@ -54918,7 +55015,7 @@ var Life = class {
       if (want) this.gullFade = false;
     }
     {
-      const G3 = this.gulls, im = this.gullIM, fl = im.geometry.attributes.aFlap;
+      const im = this.gullIM, fl = im.geometry.attributes.aFlap;
       let n = 0;
       if (this.gullAt) {
         this.gullK = Math.max(0, Math.min(1, (this.gullK || 0) + (this.gullFade ? -dt / 4 : dt / 2.5)));
@@ -54927,7 +55024,7 @@ var Life = class {
           this.gullAt = null;
         }
       }
-      for (const b of G3) {
+      for (const b of this.gulls) {
         b.a += b.w * dt;
         b.glide -= dt;
         if (b.glide < -2.5) b.glide = rnd(3, 8);
@@ -60452,6 +60549,76 @@ var SeaLife = class {
 };
 
 // src/dog.js
+var PACK = {};
+async function loadDogModels() {
+  await Promise.all([["shiba", "a_shiba.glb"], ["husky", "a_husky.glb"]].map(async ([k, f]) => {
+    try {
+      const g = await loadGLB(f);
+      PACK[k] = { scene: g.scene, clips: g.animations };
+    } catch (e) {
+      console.warn("dog model failed, using the home-made one", k, e);
+    }
+  }));
+}
+var LOOK = {
+  mutt: { base: "shiba", main: "#6e4426", light: "#dcc29a" },
+  golden: { base: "shiba", main: "#c08236", light: "#f0d8a4" },
+  shepherd: { base: "husky", main: "#251a12", light: "#a8723c" },
+  husky: { base: "husky", main: "#5c646e", light: "#f0f0ec" },
+  terrier: { base: "shiba", main: "#a06a38", light: "#f4f0e6" }
+};
+var ONCE = ["Death", "Attack", "Idle_HitReact1"];
+var SIT = [-0.45, -0.2, 0, 0.45, 0, -1.2, -1.6];
+function packDog(type) {
+  const L2 = LOOK[type] || LOOK.mutt, P = PACK[L2.base];
+  if (!P) return null;
+  const root = clone(P.scene);
+  const mats4 = [];
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    o.frustumCulled = false;
+    const one = (m) => {
+      const c = m.clone();
+      c.roughness = 0.82;
+      c.metalness = 0;
+      if (L2.main && /^(Main|Material)$/.test(m.name)) c.color.set(L2.main);
+      if (L2.light && /^(Main_Light|Material\.001)$/.test(m.name)) c.color.set(L2.light);
+      mats4.push(c);
+      return c;
+    };
+    o.material = Array.isArray(o.material) ? o.material.map(one) : one(o.material);
+  });
+  root.updateMatrixWorld(true);
+  const box2 = new Box3().setFromObject(root);
+  const h2 = box2.max.y - box2.min.y || 1;
+  root.scale.setScalar(0.8 / h2);
+  const mixer = new AnimationMixer(root);
+  const acts = {};
+  for (const c of P.clips) {
+    const a = mixer.clipAction(c);
+    if (ONCE.includes(c.name)) {
+      a.setLoop(LoopOnce, 1);
+      a.clampWhenFinished = true;
+    }
+    acts[c.name] = a;
+  }
+  const bones = {};
+  root.traverse((o) => {
+    if (o.isBone) bones[o.name] = o;
+  });
+  const mesh3 = new Group();
+  mesh3.add(root);
+  return { mesh: mesh3, root, mixer, acts, bones, mats: mats4, cur: null, seq: -1 };
+}
+var _q3 = new Quaternion();
+var _ax = new Vector3();
+var bend = (b, axis, ang) => {
+  if (!b || !ang) return;
+  _ax.set(axis === "x" ? 1 : 0, axis === "y" ? 1 : 0, axis === "z" ? 1 : 0);
+  b.quaternion.multiply(_q3.setFromAxisAngle(_ax, ang));
+};
 var DOG_TYPES = {
   mutt: { label: "Island mutt", fur: ["#7a4e2a", "#a8723f", "#e2c69a"], muzzle: ["#c89a68", "#d8b080", "#ecd8b4"], ears: "flop", earCol: "#5e3a1e", size: 1, len: 1, tail: "straight", bark: { pitch: 1, rough: 0.5, n: 2 } },
   golden: { label: "Golden", fur: ["#c4843a", "#dca45a", "#f2dcaa"], muzzle: ["#e2b878", "#e8c48a", "#f4e0b8"], ears: "flop", earCol: "#b0702e", size: 1.12, len: 1.05, tail: "feather", bark: { pitch: 0.78, rough: 0.35, n: 2 } },
@@ -60622,10 +60789,17 @@ var Dog = class {
     if (type === this.type) return;
     const vis = this.mesh ? this.mesh.visible : false;
     if (this.mesh) this.scene.remove(this.mesh);
+    if (this.pk) for (const m of this.pk.mats) m.dispose();
     this.type = type;
-    const r = makeRig(dogModel(type), this.mat);
-    this.mesh = r.mesh;
-    this.B = r.bones;
+    this.pk = packDog(type);
+    if (this.pk) {
+      this.mesh = this.pk.mesh;
+      this.B = null;
+    } else {
+      const r = makeRig(dogModel(type), this.mat);
+      this.mesh = r.mesh;
+      this.B = r.bones;
+    }
     this.mesh.scale.setScalar(DOG_TYPES[type].size);
     this.mesh.visible = vis;
     this.scene.add(this.mesh);
@@ -60867,11 +61041,15 @@ var Dog = class {
   }
   set(s, keep = false) {
     if (this.state === s) {
-      if (!keep) this.t = 0;
+      if (!keep) {
+        this.t = 0;
+        this.seq = (this.seq || 0) + 1;
+      }
       return;
     }
     this.state = s;
     this.t = 0;
+    this.seq = (this.seq || 0) + 1;
   }
   dug() {
     const tot = DIG.reduce((a, d) => a + d[1], 0);
@@ -60949,8 +61127,101 @@ var Dog = class {
     const cos = (dx * dir.x + dy * dir.y + dz * dir.z) / d;
     return cos > 0.84 ? this : null;
   }
+  // the pack dog: its own walk, gallop, sniff, eat, bite and lying-down moves, with a few touches on top
+  // (sitting, pawing at the ground when he digs, the tail wagging, breathing while he sleeps)
+  animatePack(dt) {
+    const K = this.pk, A = K.acts, s = this.state, hs = this.speed, t = this.t;
+    let clip = "Idle", ts = 1, fade = 0.25, from = 0;
+    if (s === "move") {
+      if (hs < 3.6) {
+        clip = "Walk";
+        ts = MathUtils.clamp(hs / 1.45, 0.55, 2.1);
+      } else {
+        clip = "Gallop";
+        ts = MathUtils.clamp(hs / 6.2, 0.75, 1.45);
+      }
+    } else if (s === "dig") {
+      clip = "Eating";
+      ts = 2.4;
+    } else if (s === "eat") clip = "Eating";
+    else if (s === "drink") {
+      clip = "Eating";
+      ts = 1.7;
+    } else if (s === "bark") {
+      clip = "Idle_HitReact1";
+      ts = 1.5;
+      fade = 0.1;
+    } else if (s === "bite") {
+      clip = "Attack";
+      ts = 1.6;
+      fade = 0.08;
+    } else if (s === "sleep" || s === "stuck") {
+      clip = "Death";
+      fade = 0.9;
+      from = 0.55;
+    } else if (s === "idle" || s === "sit") {
+      clip = s === "idle" && Math.floor((this.t + this.phase) / 5) % 3 === 2 ? "Idle_2_HeadLow" : "Idle";
+      fade = 0.5;
+    }
+    const a = A[clip] || A.Idle;
+    a.timeScale = ts;
+    const restart = ONCE.includes(clip) && K.seq !== this.seq && clip !== "Death";
+    if (K.cur !== clip || restart) {
+      const prev = K.cur && A[K.cur];
+      a.reset();
+      if (from) a.time = a.getClip().duration * from;
+      a.setEffectiveWeight(1).play();
+      if (prev && prev !== a) prev.crossFadeTo(a, fade, false);
+      K.cur = clip;
+    }
+    K.seq = this.seq;
+    if (s === "stuck" && !K.settled) {
+      a.time = a.getClip().duration;
+      K.settled = true;
+    }
+    K.mixer.update(dt);
+    const B = K.bones;
+    this.phase += dt;
+    K.sit = damp6(K.sit || 0, s === "sit" ? 1 : 0, 6, dt);
+    const k = K.sit;
+    if (k > 0.01) {
+      const S = SIT;
+      bend(B.Body, "x", S[0] * k);
+      bend(B.Neck1, "x", S[1] * k);
+      bend(B.Head, "x", S[2] * k);
+      for (const side of ["L", "R"]) {
+        bend(B["FrontUpperLeg" + side], "x", S[3] * k);
+        bend(B["FrontLowerLeg" + side], "x", S[4] * k);
+        bend(B["BackUpperLeg" + side], "x", S[5] * k);
+        bend(B["BackLowerLeg" + side], "x", S[6] * k);
+      }
+    }
+    if (s === "dig") {
+      const w = Math.sin(t * 24);
+      bend(B.FrontUpperLegL, "x", -0.5 + w * 0.5);
+      bend(B.FrontUpperLegR, "x", -0.5 - w * 0.5);
+    }
+    if (s !== "sleep" && s !== "stuck") {
+      const w = Math.sin(this.t * (6 + 8 * this.wag)) * (0.25 + 0.4 * this.wag);
+      bend(B.Tail1, "z", w);
+      bend(B.Tail2, "z", w * 0.6);
+    }
+    if (s === "sleep") bend(B.Torso, "z", Math.sin(this.t * 1.6) * 0.03);
+    if (s === "stuck") {
+      const w = Math.max(0, Math.sin(this.t * 0.9)) ** 6;
+      bend(B.Body, "y", Math.sin(this.t * 11) * 0.12 * w);
+      bend(B.Neck1, "x", -0.4 * w);
+    }
+    this.mesh.position.copy(this.pos);
+    this.mesh.position.y -= 0.08 * k * DOG_TYPES[this.type].size;
+    this.mesh.rotation.y = this.yaw;
+  }
   // hand-made animation: walking and running legs, sitting, lying in the net, digging, barking, a wagging tail
   animate(dt) {
+    if (this.pk) {
+      this.animatePack(dt);
+      return;
+    }
     const B = this.B, s = this.state, hs = this.speed;
     this.phase += dt * (2 + hs * 2.4);
     const ph = this.phase, amp = s === "move" ? Math.min(1, hs / 3) : 0;
@@ -61927,7 +62198,7 @@ var AUTO_CAP = { coconut: 6, crab_shell: 12, crab_meat: 10 };
 var CAP_NAME = { coconut: "coconuts", crab_shell: "crab shells", crab_meat: "bits of crab meat" };
 var LIFT = { stick: 0.035, stone: 0.05, leaf: 0.02, coconut: 0.11, crab_meat: 0.06, crab_shell: 0.03, goat_meat: 0.03, venison: 0.03, feather: 0.01, dodo_egg: 0, hide: 0.03, tusk: 0.03, sweet_potato: 0.05, shell: 0 };
 var _m6 = new Matrix4();
-var _q3 = new Quaternion();
+var _q4 = new Quaternion();
 var _v3 = new Vector3();
 var _s3 = new Vector3();
 var _e2 = new Euler();
@@ -62113,6 +62384,7 @@ var World = class {
     this.reeds = (veg.reeds || []).map((r, idx2) => ({ ...r, idx: idx2, alive: true, regrowDay: 0 }));
     this.bushes.forEach((b) => b.fruit = b.fruitMax);
     this.cargo = props.cargo.map((c) => ({ ...c, searched: !CRATE_LOOT[c.id] && c.kind === "crate", water: c.water ? 5 : 0 }));
+    for (const c of this.cargo) setCargoWater(c.obj, c.water, CARGO_MAX);
     const fruitBushes = this.fruitBushes = this.bushes.filter((b) => b.fruitMax);
     this.fruitIM = new InstancedMesh(itemGeometry("guava"), itemMaterial, fruitBushes.length * 3);
     this.fruitIM.castShadow = true;
@@ -62122,7 +62394,7 @@ var World = class {
       for (let k = 0; k < 3; k++) {
         const a = rand() * 6.28, d = (0.25 + rand() * 0.35) * b.k;
         const x = b.x + Math.cos(a) * d, z = b.z + Math.sin(a) * d, y = b.h + (0.45 + rand() * 0.4) * b.k;
-        _m6.compose(_v3.set(x, y, z), _q3.setFromEuler(_e2.set(rand(), rand() * 6, rand())), _s3.setScalar(1.4));
+        _m6.compose(_v3.set(x, y, z), _q4.setFromEuler(_e2.set(rand(), rand() * 6, rand())), _s3.setScalar(1.4));
         this.fruitIM.setMatrixAt(fi, _m6);
         b.fruitSlots.push({ i: fi, m: _m6.clone() });
         fi++;
@@ -62170,7 +62442,7 @@ var World = class {
     this.obsIM.castShadow = true;
     this.obsIM.receiveShadow = true;
     for (const o of this.obsidian) {
-      _m6.compose(_v3.set(o.x, o.h - 0.1, o.z), _q3.setFromEuler(_e2.set(0, o.ry, 0)), _s3.setScalar(o.s));
+      _m6.compose(_v3.set(o.x, o.h - 0.1, o.z), _q4.setFromEuler(_e2.set(0, o.ry, 0)), _s3.setScalar(o.s));
       this.obsIM.setMatrixAt(o.idx, _m6);
     }
     this.obsIM.computeBoundingSphere();
@@ -62195,7 +62467,7 @@ var World = class {
     this.oreIM.castShadow = true;
     this.oreIM.receiveShadow = true;
     for (const o of this.ore) {
-      _m6.compose(_v3.set(o.x, o.h - 0.15, o.z), _q3.setFromEuler(_e2.set(0, o.ry, 0)), _s3.setScalar(o.s));
+      _m6.compose(_v3.set(o.x, o.h - 0.15, o.z), _q4.setFromEuler(_e2.set(0, o.ry, 0)), _s3.setScalar(o.s));
       this.oreIM.setMatrixAt(o.idx, _m6);
     }
     this.oreIM.computeBoundingSphere();
@@ -62322,7 +62594,7 @@ var World = class {
         if (k >= cap2) break;
         const tilt = p.type === "stone" || p.type === "coconut" ? 0.3 : 0.06;
         const sc = p.fly ? 1 - p.fly.t * 0.5 : p.type === "leaf" ? 1.3 : 1;
-        _m6.compose(_v3.set(p.x, p.y, p.z), _q3.setFromEuler(_e2.set((p.id % 7 - 3) * tilt * 0.3, p.ry, (p.id % 5 - 2) * tilt * 0.2)), _s3.setScalar(sc));
+        _m6.compose(_v3.set(p.x, p.y, p.z), _q4.setFromEuler(_e2.set((p.id % 7 - 3) * tilt * 0.3, p.ry, (p.id % 5 - 2) * tilt * 0.2)), _s3.setScalar(sc));
         P.im.setMatrixAt(k++, _m6);
       }
       P.im.count = k;
@@ -62342,7 +62614,7 @@ var World = class {
   setWildMatrix(w) {
     if (!w.alive) this.wildIM.setMatrixAt(w.idx, ZERO3);
     else {
-      _m6.compose(_v3.set(w.x, w.h - 0.02, w.z), _q3.setFromEuler(_e2.set(0, w.ry, 0)), _s3.setScalar(w.s));
+      _m6.compose(_v3.set(w.x, w.h - 0.02, w.z), _q4.setFromEuler(_e2.set(0, w.ry, 0)), _s3.setScalar(w.s));
       this.wildIM.setMatrixAt(w.idx, _m6);
     }
     this.wildIM.instanceMatrix.needsUpdate = true;
@@ -63664,6 +63936,7 @@ var World = class {
         inv.takeSelected(1);
         if (barrel) {
           barrel.water--;
+          setCargoWater(barrel.obj, barrel.water, CARGO_MAX);
           this.emit("cargo", { id: barrel.id, searched: barrel.searched ? 1 : 0, water: barrel.water });
           inv.add("shell_water", 1);
           this.toast("Filled with fresh water", "shell_water");
@@ -65133,8 +65406,10 @@ var World = class {
   // how much water is in a barrel (the ones on the beach or one you built)
   setStore(kind, r, n) {
     r.water = n;
-    if (kind === "barrel") this.emit("cargo", { id: r.id, searched: r.searched ? 1 : 0, water: r.water });
-    else {
+    if (kind === "barrel") {
+      setCargoWater(r.obj, n, CARGO_MAX);
+      this.emit("cargo", { id: r.id, searched: r.searched ? 1 : 0, water: r.water });
+    } else {
       setWaterBarrel(r.obj, n);
       this.emit("wbar", { sid: r.sid, water: n });
     }
@@ -65292,7 +65567,7 @@ var World = class {
     }
   }
   setClay(c) {
-    _m6.compose(_v3.set(c.x, c.h - 0.04, c.z), _q3.setFromEuler(_e2.set(0, c.ry, 0)), _s3.set(c.s, c.left > 0 ? 1 : 0.3, c.s));
+    _m6.compose(_v3.set(c.x, c.h - 0.04, c.z), _q4.setFromEuler(_e2.set(0, c.ry, 0)), _s3.set(c.s, c.left > 0 ? 1 : 0.3, c.s));
     this.clayIM.setMatrixAt(c.idx, _m6);
     this.clayIM.instanceMatrix.needsUpdate = true;
   }
@@ -65824,6 +66099,7 @@ var World = class {
           if (c) {
             c.searched = !!m.searched;
             c.water = m.water;
+            setCargoWater(c.obj, c.water, CARGO_MAX);
           }
           break;
         }
@@ -66215,6 +66491,7 @@ var World = class {
       if (c) {
         c.searched = !!searched;
         c.water = water;
+        setCargoWater(c.obj, c.water, CARGO_MAX);
       }
     }
     for (const [idx2, left] of o.obs || []) if (this.obsidian[idx2]) this.obsidian[idx2].left = left;
@@ -66551,8 +66828,8 @@ var Crew = class {
       return { x: fire.x + Math.cos(a) * 3.4, z: fire.z + Math.sin(a) * 3.4, yaw: Math.atan2(Math.cos(a), Math.sin(a)), anim: "Idle_Loop", guard: true };
     }
     if ((evening || night) && fire) {
-      const a = idx2 * 1.4 + 0.6;
-      return { x: fire.x + Math.cos(a) * 1.7, z: fire.z + Math.sin(a) * 1.7, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), anim: "Sitting_Idle_Loop" };
+      const a = idx2 * 1.4 + 0.6, turn = (Math.floor(time * 60 / 9) + idx2) % 3 === 0;
+      return { x: fire.x + Math.cos(a) * 1.7, z: fire.z + Math.sin(a) * 1.7, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), anim: turn ? "Sitting_Talking_Loop" : "Sitting_Idle_Loop" };
     }
     if (job === "guard") {
       const f = fire || base;
@@ -66594,7 +66871,7 @@ var Crew = class {
       m.guardPost = want.guard ? want : null;
       m.strikeT = (m.strikeT || 0) - dt;
       if (m.strikeT > 0) {
-        anim = "Sword_Regular_A";
+        anim = m.strikeN % 2 ? "Sword_Regular_B" : "Sword_Regular_A";
         want.yaw = m.strikeYaw;
       }
       if (far > 70) {
@@ -66635,17 +66912,18 @@ var Crew = class {
         m.seat.visible = false;
         return;
       }
-      if (anim !== m.anim || anim === "Sword_Regular_A" && m.newStrike) {
+      const strike = anim.startsWith("Sword_Regular");
+      if (anim !== m.anim || strike && m.newStrike) {
         m.newStrike = false;
         m.anim = anim;
         if (anim === "sleep") {
           m.c.play("LayToIdle", 0.3, 0);
-        } else m.c.play(anim, anim === "Sword_Regular_A" ? 0.08 : 0.3, anim === "Walk_Loop" ? 1.05 : 1, anim === "Sword_Regular_A");
+        } else m.c.play(anim, strike ? 0.08 : 0.3, anim === "Walk_Loop" ? 1.05 : 1, strike);
       }
       m.c.root.position.copy(m.pos);
       m.c.root.rotation.y = m.yaw;
       m.c.setShadow(pd < 30);
-      const sit = anim === "Sitting_Idle_Loop";
+      const sit = anim.startsWith("Sitting_");
       m.seat.visible = sit;
       if (sit) {
         m.seat.position.set(m.pos.x - Math.sin(m.yaw) * 0.12, m.pos.y + 0.2, m.pos.z - Math.cos(m.yaw) * 0.12);
@@ -66680,7 +66958,7 @@ var Crew = class {
       if (!m.ready || !m.c.root.visible) continue;
       const d = Math.hypot(player.pos.x - m.pos.x, player.pos.z - m.pos.z);
       if (d > 30) continue;
-      _v4.set(m.pos.x, m.pos.y + (m.anim === "Sitting_Idle_Loop" || m.anim === "sleep" ? 1.45 : 2.05), m.pos.z).project(camera);
+      _v4.set(m.pos.x, m.pos.y + (m.anim?.startsWith("Sitting_") || m.anim === "sleep" ? 1.45 : 2.05), m.pos.z).project(camera);
       if (_v4.z > 1 || Math.abs(_v4.x) > 1.1 || Math.abs(_v4.y) > 1.1) continue;
       out.push({ id: "crew-" + m.d.id, name: m.d.name, x: (_v4.x * 0.5 + 0.5) * w, y: (-_v4.y * 0.5 + 0.5) * h2 - 10, op: d > 18 ? 0.45 : 1, crew: true });
     }
@@ -66899,6 +67177,7 @@ var Crew = class {
       m.hitT = 1.6 - 0.2 * (L2 - 1);
       m.strikeT = 0.6;
       m.newStrike = true;
+      m.strikeN = (m.strikeN || 0) + 1;
       m.strikeYaw = Math.atan2(best.pos.x - m.pos.x, best.pos.z - m.pos.z);
       hit(best, Math.round((m.d.best === "guard" ? 12 : 9) * (1 + 0.25 * (L2 - 1)) * (S.hungry ? 0.6 : 1)), m.pos);
     }
@@ -69594,7 +69873,7 @@ var Cloud = class {
 
 // src/main.js
 var $2 = (s) => document.querySelector(s);
-var BUILD = true ? "21 Oct 2026, 17:55" : "dev";
+var BUILD = true ? "23 Oct 2026, 13:54" : "dev";
 var store = {
   get(k, d) {
     try {
@@ -70221,7 +70500,7 @@ function start(hotData = {}) {
     };
     progress.onChange = () => ui.setLevel(progress);
     progress.onLevel = onLevelUp;
-    await loadCreatureModels();
+    await Promise.all([loadCreatureModels(), loadDogModels()]);
     creatures = new Creatures({ scene, terrain, colliders, world, fx });
     dog = new Dog({ scene, terrain, colliders, world, creatures });
     dog.setType(look.dog || DEFAULT_DOG, look.dogName || DEFAULT_DOG_NAME);
@@ -71119,7 +71398,7 @@ function start(hotData = {}) {
     }
     if (id !== void 0) net.send({ t: "stun", id });
   }
-  let blockTips = 0, barkDay = -1, lastSide = "";
+  let blockTips = 0, barkDay = -1, lastSide = "", comboN = 0, comboUntil = -9;
   function takeHit(dmg, x, z, knock, c = null, cid) {
     if (mode !== "play" && !(net.on && (mode === "menu" || mode === "bag" || mode === "talk"))) return;
     dmg *= hurtMul();
@@ -71331,6 +71610,7 @@ function start(hotData = {}) {
       creatures.boat = null;
       creatures.raid.final = false;
     }
+    player.down();
     fadeThen("You got knocked out\u2026", 2800, () => {
       exitMine(true);
       if (solo) {
@@ -71345,6 +71625,7 @@ function start(hotData = {}) {
       const p = respawn ? new Vector3(...(([a, b]) => [a, respawn[2] || 0, b])(world.freeSpotNear(respawn[0], respawn[1]))) : spawn.clone();
       player.place(p, player.yaw);
       player.knock.set(0, 0, 0);
+      player.wake();
       ui.toast(solo ? "You woke up sore. Build some defences before tonight." : "You came round back at camp. Get back out there.");
       raftHome();
     });
@@ -72046,6 +72327,7 @@ function start(hotData = {}) {
     const id = s && (ITEMS[s.id].tool || ITEMS[s.id].food || ITEMS[s.id].jug) ? s.id : null;
     if (id === heldId && handObj?.parent) return;
     heldId = id;
+    if (player) player.holdId = id;
     if (handObj) {
       handObj.parent?.remove(handObj);
       handObj = null;
@@ -72092,8 +72374,36 @@ function start(hotData = {}) {
     viewRig.add(viewObj);
   }
   let blockBlend = 0;
+  function swapHand(left) {
+    const B = character.bones, o = handObj;
+    if (!B?.hand_l || !B?.hand_r || !o) return;
+    if (!o.userData.r) o.userData.r = { p: o.position.clone(), q: o.quaternion.clone() };
+    if (left && !o.userData.l) {
+      let sk = null;
+      character.root.traverse((m) => {
+        if (!sk && m.isSkinnedMesh) sk = m.skeleton;
+      });
+      const ir = sk?.bones.findIndex((b) => b.name === "hand_r"), il = sk?.bones.findIndex((b) => b.name === "hand_l");
+      if (!sk || ir < 0 || il < 0) return;
+      const Br = sk.boneInverses[ir].clone().invert(), Bl = sk.boneInverses[il].clone().invert(), Mx = new Matrix4().makeScale(-1, 1, 1);
+      const W2 = Mx.clone().multiply(Br).multiply(new Matrix4().compose(o.userData.r.p, o.userData.r.q, new Vector3(1, 1, 1))).multiply(Mx);
+      const L2 = Bl.invert().multiply(W2), p = new Vector3(), q = new Quaternion(), sc = new Vector3();
+      L2.decompose(p, q, sc);
+      o.userData.l = { p, q };
+    }
+    const T2 = left ? o.userData.l : o.userData.r;
+    if (!T2) return;
+    (left ? B.hand_l : B.hand_r).add(o);
+    o.position.copy(T2.p);
+    o.quaternion.copy(T2.q);
+    o.userData.onL = left;
+  }
   function animateViewModel(dt) {
     const fp = player.viewBlend < 0.5;
+    if (handObj) {
+      const wantL = heldId === "torch" && character.current === "Idle_Torch_Loop";
+      if (wantL !== !!handObj.userData.onL) swapHand(wantL);
+    }
     viewRig.visible = fp && !!viewObj && mode !== "creator";
     character.setArmHidden(viewRig.visible);
     if (handObj) handObj.visible = !fp;
@@ -72103,7 +72413,8 @@ function start(hotData = {}) {
     const a = player.action;
     if (a) {
       const k = Math.min(1, a.t / a.dur);
-      const swing = a.anim === "TreeChopping_Loop" || a.anim === "Sword_Regular_A" || a.anim === "Punch_Jab";
+      const swing = a.anim === "TreeChopping_Loop" || /^Sword_Regular_|^Punch_/.test(a.anim);
+      const mir = a.mirror ? -1 : 1;
       if (a.style === "stab") {
         if (a.t < a.impact) {
           const q = a.t / a.impact;
@@ -72121,9 +72432,9 @@ function start(hotData = {}) {
           const q = (a.t - a.impact) / Math.max(0.01, a.dur - a.impact);
           s = q < 0.3 ? -1 + 2.2 * (q / 0.3) : 1.2 - 1.2 * ((q - 0.3) / 0.7);
         }
-        rz = 1.15 * Math.min(1, Math.abs(s) * 2.5);
-        ry = 0.9 * s;
-        tx = -0.24 * s;
+        rz = 1.15 * Math.min(1, Math.abs(s) * 2.5) * mir;
+        ry = 0.9 * s * mir;
+        tx = -0.24 * s * mir;
         ty = 0.05 * Math.min(1, Math.abs(s) * 2);
         tz = -0.06 * Math.abs(s);
       } else if (swing) {
@@ -72138,8 +72449,8 @@ function start(hotData = {}) {
         tz = s > 0 ? 0.06 * s : 0.1 * s;
         ry = s > 0 ? -0.15 * s : 0.1 * s;
         if (s < 0) {
-          tx = 0.12 * s;
-          rz = -0.35 * s;
+          tx = 0.12 * s * mir;
+          rz = -0.35 * s * mir;
         }
       } else {
         ty = -0.12 * Math.sin(k * Math.PI);
@@ -73295,6 +73606,7 @@ function start(hotData = {}) {
       creatures.boat = null;
       creatures.raid.final = false;
     }
+    player.down();
     fadeThen("You passed out\u2026", 2800, () => {
       exitMine(true);
       if (!net.isGuest) {
@@ -73308,6 +73620,7 @@ function start(hotData = {}) {
       stats.stamina = stats.maxStamina;
       const p = respawn ? new Vector3(...(([a, b]) => [a, respawn[2] || 0, b])(world.freeSpotNear(respawn[0], respawn[1]))) : spawn.clone();
       player.place(p, player.yaw);
+      player.wake();
       ui.toast("Keep an eye on your food and water.");
     });
   }
@@ -73730,7 +74043,7 @@ function start(hotData = {}) {
   let fireSig = "";
   let hitStop = 0, chestUsed = false, pinT = 0;
   let slash = null;
-  function slashFx() {
+  function slashFx(dir = 1, big = false) {
     if (!slash) {
       const g = new RingGeometry(0.8, 1, 36, 2, Math.PI / 2 - 1.75, 3.5).rotateX(-Math.PI / 2);
       const pos = g.attributes.position, along = [], across = [];
@@ -73760,9 +74073,10 @@ function start(hotData = {}) {
     const r = (attackFor(inv.selected, 1).reach || 2.4) * 0.92;
     slash.visible = true;
     slash.userData.t = 0.22;
-    slash.userData.r = r;
-    slash.position.set(player.pos.x, player.pos.y + 1, player.pos.z);
-    slash.rotation.set(0, player.yaw, 0.12);
+    slash.userData.r = r * (big ? 1.25 : 1);
+    slash.userData.dir = dir;
+    slash.position.set(player.pos.x, player.pos.y + (big ? 0.85 : 1), player.pos.z);
+    slash.rotation.set(0, player.yaw, 0.12 * dir);
   }
   function updateSlash(dt) {
     if (!slash?.visible) return;
@@ -73775,7 +74089,7 @@ function start(hotData = {}) {
     const k = 1 - u.t / 0.22, U = slash.material.uniforms;
     U.uP.value = k * 1.35;
     U.uA.value = 0.85 * (1 - 0.55 * sky.nightF) * Math.min(1, (1 - k) * 3);
-    slash.scale.set(u.r, 1, u.r);
+    slash.scale.set(u.r * (u.dir || 1), 1, u.r);
   }
   function frame(fixedDt) {
     if (typeof fixedDt !== "number") timer.update();
@@ -73867,11 +74181,36 @@ function start(hotData = {}) {
             a = { anim: "OverhandThrow", dur: 0.6, speed: 1.6, impact: 0.3, viewOnly: true, onImpact: () => catchKid(k) };
           } else if (!fighting || def?.place) a = world.use(target, inv, stats);
           if (!a && !def?.place && !(def?.food && !fighting) && !(sel?.id === "shell_sea")) {
-            a = { ...atk, onImpact: () => {
-              if (atk.style === "slash") slashFx();
-              const hits = creatures.hit(player.pos, player.yaw, atk);
+            a = { ...atk };
+            if (atk.style !== "stab") {
+              comboN = t < comboUntil ? (comboN + 1) % (atk.style === "slash" ? 3 : 2) : 0;
+              if (atk.style === "punch") {
+                if (comboN) {
+                  a.anim = "Punch_Cross";
+                  a.speed = 1.6;
+                }
+              } else if (comboN === 1) {
+                a.anim = "Sword_Regular_B";
+                a.mirror = true;
+              } else if (comboN === 2) {
+                a.anim = "Sword_Regular_C";
+                a.speed *= 1.45;
+                a.dur *= 1.55;
+                a.impact *= 1.6;
+                a.dmg *= 1.6;
+                a.knock *= 1.5;
+                a.arc = -0.6;
+                a.max += 1;
+                a.finisher = true;
+              }
+              comboUntil = t + a.dur + 0.5;
+            }
+            const hit = a;
+            a = { ...hit, onImpact: () => {
+              if (hit.style === "slash") slashFx(hit.mirror ? -1 : 1, hit.finisher);
+              const hits = creatures.hit(player.pos, player.yaw, hit);
               if (hits.length) {
-                const big = hits.some((c) => !c.alive) || atk.dmg >= 20;
+                const big = hits.some((c) => !c.alive) || hit.dmg >= 20 || hit.finisher;
                 hitStop = big ? 0.09 : 0.055;
                 player.shake = Math.max(player.shake, big ? 0.32 : 0.2);
                 if (inv.selected?.dur !== void 0 && ITEMS[inv.selected.id].tool) {
@@ -74274,7 +74613,15 @@ function start(hotData = {}) {
       }
     }
     if (!TEST || fixedDt === "render") composer.render();
-    if (!TEST) requestAnimationFrame(() => frame());
+  }
+  let loopErrs = 0;
+  function loop() {
+    try {
+      frame();
+    } catch (e) {
+      if (loopErrs++ < 5) console.error("frame failed", e);
+    }
+    requestAnimationFrame(loop);
   }
   build().then(() => {
     $2("#loading").classList.add("done");
@@ -74284,7 +74631,7 @@ function start(hotData = {}) {
     GOAL_SETS.forEach((_, i) => {
       if (setDone(i)) unlockSet(i, true);
     });
-    if (!TEST) requestAnimationFrame(() => frame());
+    if (!TEST) requestAnimationFrame(loop);
     window.__ck = {
       updateRays,
       get life() {
