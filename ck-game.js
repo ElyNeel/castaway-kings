@@ -69873,7 +69873,7 @@ var Cloud = class {
 
 // src/main.js
 var $2 = (s) => document.querySelector(s);
-var BUILD = true ? "23 Oct 2026, 13:54" : "dev";
+var BUILD = true ? "23 Oct 2026, 16:49" : "dev";
 var store = {
   get(k, d) {
     try {
@@ -72943,6 +72943,38 @@ function start(hotData = {}) {
     if (mode === "play" && !isTouch) openMenu();
   };
   $2("#resume").addEventListener("click", closeMenu);
+  function unstick() {
+    if (!player || mode === "creator") return;
+    if (player.mine) {
+      exitMine();
+      return;
+    }
+    if (player.raft) {
+      leaveRaft(true);
+      return;
+    }
+    const p = player.pos;
+    for (let r = 2.5; r < 80; r += 1.5) for (let k = 0; k < 20; k++) {
+      const a = k / 20 * Math.PI * 2 + r * 0.7, x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r, h2 = terrain.heightAt(x, z);
+      if (h2 < 0.4 || terrain.slopeAt(x, z) > 0.45 || colliders.blocked(x, z, 0.8)) continue;
+      if (world.supportAt(x, z, h2 + 6) > h2 - 1) continue;
+      player.action = null;
+      player.sitting = 0;
+      player.hitAnimT = 0;
+      player.dodgeT = 0;
+      player.blocking = false;
+      player.vel.set(0, 0, 0);
+      player.knock.set(0, 0, 0);
+      player.place(new Vector3(x, h2, z), Math.atan2(x - p.x, z - p.z) + Math.PI);
+      character.play("Idle_Loop", 0.1);
+      $2("#resume")?.click();
+      ui.toast("Moved you out into the open.");
+      saveGame();
+      return;
+    }
+    ui.toast("Couldn\u2019t find open ground nearby. Try taking a wall down.");
+  }
+  $2("#m-unstuck").addEventListener("click", unstick);
   $2("#m-save").addEventListener("click", () => {
     saveGame();
     cloud.flush();
